@@ -1,10 +1,15 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net/rpc"
+	"os"
+	"path/filepath"
+	"sort"
+	"time"
 )
 
 // Map functions return a slice of KeyValue.
@@ -12,6 +17,14 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -22,41 +35,133 @@ func ihash(key string) int {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
-
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
-
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	for {
+		task := getTask()
+		switch task.Phase {
+		case MapPhase:
+			mapper(&task, mapf)
+		case ReducePhase:
+			reducer(&task, reducef)
+		case WaitPhase:
+			time.Sleep(time.Second)
+		case ExitPhase:
+			return
+		}
+	}
 }
 
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
+func reducer(task *Task, reducef func(string, []string) string) {
+	intermediates := *readFromLocalFile(task.IntermediateFiles)
+	sort.Sort(ByKey(intermediates))
 
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
-	ok := call("Coordinator.Example", &args, &reply)
-	if ok {
-		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
-	} else {
-		fmt.Printf("call failed!\n")
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal("Failed to get current working directory", err)
 	}
+	tempFile, err := os.CreateTemp(dir, "mr-temp-*")
+	if err != nil {
+		log.Fatal("Failed to create temp file", err)
+	}
+	i := 0
+	for i < len(intermediates) {
+		j := i + 1
+		for j < len(intermediates) && intermediates[j].Key == intermediates[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediates[k].Value)
+		}
+		output := reducef(intermediates[i].Key, values)
+		fmt.Fprintf(tempFile, "%v %v\n", intermediates[i].Key, output)
+		i = j
+	}
+	tempFile.Close()
+
+	outputName := fmt.Sprintf("mr-out-%d", task.ID)
+	if err = os.Rename(tempFile.Name(), outputName); err != nil {
+		log.Fatal("Failed to rename temp file", err)
+	}
+	task.OutputFile = outputName
+	taskCompleted(task)
+}
+
+func mapper(task *Task, mapf func(string, string) []KeyValue) {
+	content, err := os.ReadFile(task.InputFilePath)
+	if err != nil {
+		log.Fatal("Failed to read file: "+task.InputFilePath, err)
+	}
+
+	intermediates := mapf(task.InputFilePath, string(content))
+	buffer := make([][]KeyValue, task.NReducer)
+	for _, intermediate := range intermediates {
+		slot := ihash(intermediate.Key) % task.NReducer
+		buffer[slot] = append(buffer[slot], intermediate)
+	}
+	filepaths := make([]string, 0, task.NReducer)
+	for i := 0; i < task.NReducer; i++ {
+		filepaths = append(filepaths, writeToLocalFile(task.ID, i, &buffer[i]))
+	}
+
+	task.IntermediateFiles = filepaths
+	taskCompleted(task)
+}
+
+func readFromLocalFile(files []string) *[]KeyValue {
+	kvs := []KeyValue{}
+	for _, filepath := range files {
+		f, err := os.Open(filepath)
+		if err != nil {
+			log.Fatal("Failed to open file: "+filepath, err)
+		}
+		decoder := json.NewDecoder(f)
+		for {
+			var kv KeyValue
+			if err := decoder.Decode(&kv); err != nil {
+				break
+			}
+			kvs = append(kvs, kv)
+		}
+		f.Close()
+	}
+	return &kvs
+}
+
+func writeToLocalFile(taskID, ReducerID int, kvs *[]KeyValue) string {
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal("Failed to get current working directory", err)
+	}
+	tempFile, err := os.CreateTemp(dir, fmt.Sprintf("mr-temp-%d-%d", taskID, ReducerID))
+	if err != nil {
+		log.Fatal("Failed to create temp file", err)
+	}
+	encoder := json.NewEncoder(tempFile)
+	for _, kv := range *kvs {
+		if err = encoder.Encode(kv); err != nil {
+			log.Fatal("Failed to encode key-value pair", err)
+		}
+	}
+	tempFile.Close()
+
+	filename := fmt.Sprintf("mr-%d-%d", taskID, ReducerID)
+	if err = os.Rename(tempFile.Name(), filename); err != nil {
+		log.Fatal("Failed to rename temp file", err)
+	}
+	return filepath.Join(dir, filename)
+}
+
+func taskCompleted(task *Task) {
+	reply := ExampleReply{}
+	call("Coordinator.TaskCompleted", &task, &reply)
+}
+
+func getTask() Task {
+	args := ExampleArgs{}
+	reply := Task{}
+	call("Coordinator.AssignTask", &args, &reply)
+	return reply
 }
 
 // send an RPC request to the coordinator, wait for the response.
