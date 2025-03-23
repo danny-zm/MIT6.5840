@@ -8,7 +8,7 @@ REFERENCE_FILES=(
     src/labgob/test_test.go
     src/labrpc/labrpc.go
     src/labrpc/test_test.go
-    src/models1/kv.go
+    src/models/kv.go
 
     # lab 1
     src/mrapps/crash.go
@@ -22,34 +22,34 @@ REFERENCE_FILES=(
     src/main/mrworker.go
 
     # lab 2
-    src/kvsrv1/lock/lock_test.go
-    src/kvsrv1/kvsrv_test.go
-    src/kvsrv1/test.go
-    src/kvtest1/kvtest.go
-    src/kvtest1/porcupine.go
+    src/kvsrv/lock/lock_test.go
+    src/kvsrv/kvsrv_test.go
+    src/kvsrv/test.go
+    src/kvtest/kvtest.go
+    src/kvtest/porcupine.go
 
     # lab 3
-    src/raft1/raft_test.go
-    src/raft1/server.go
-    src/raft1/test.go
-    src/tester1/clnts.go
-    src/tester1/config.go
-    src/tester1/group.go
-    src/tester1/persister.go
-    src/tester1/srv.go
-    src/tester1/annotation.go
+    src/raft/raft_test.go
+    src/raft/server.go
+    src/raft/test.go
+    src/tester/clnts.go
+    src/tester/config.go
+    src/tester/group.go
+    src/tester/persister.go
+    src/tester/srv.go
+    src/tester/annotation.go
 
     # lab 4
-    src/kvraft1/rsm/rsm_test.go
-    src/kvraft1/rsm/server.go
-    src/kvraft1/rsm/test.go
-    src/kvraft1/kvraft_test.go
-    src/kvraft1/test.go
+    src/kvraft/rsm/rsm_test.go
+    src/kvraft/rsm/server.go
+    src/kvraft/rsm/test.go
+    src/kvraft/kvraft_test.go
+    src/kvraft/test.go
 
     # lab 5
-    src/shardkv1/test.go
-    src/shardkv1/shardkv_test.go
-    src/shardkv1/shardcfg/shardcfg_test.go
+    src/shardkv/test.go
+    src/shardkv/shardkv_test.go
+    src/shardkv/shardcfg/shardcfg_test.go
 )
 
 main() {
